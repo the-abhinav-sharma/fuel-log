@@ -366,22 +366,23 @@ onMounted(fetchDashboardData);
           <div class="input-row">
             <div class="input-block">
               <label>Litres Injected</label>
-              <input type="number" step="0.01" v-model="form.litres" placeholder="0.00" required />
+              <input type="number" step="0.01" inputmode="decimal" v-model="form.litres" placeholder="0.00" required />
             </div>
             <div class="input-block">
               <label>Odometer (km)</label>
-              <input type="number" v-model="form.odometerReading" placeholder="Current km" required />
+              <input type="number" inputmode="decimal" v-model="form.odometerReading" placeholder="Current km"
+                required />
             </div>
           </div>
 
           <div class="input-row">
             <div class="input-block">
               <label>Total Paid (₹)</label>
-              <input type="number" v-model="form.amountSpent" placeholder="Total Rs." required />
+              <input type="number" inputmode="decimal" v-model="form.amountSpent" placeholder="Total Rs." required />
             </div>
             <div class="input-block">
               <label>Rate / L (₹)</label>
-              <input type="number" step="0.01" v-model="form.ratePerLitre"
+              <input type="number" step="0.01" inputmode="decimal" v-model="form.ratePerLitre"
                 :placeholder="autoCalculatedRate || 'Auto-computed'" />
             </div>
           </div>
@@ -429,7 +430,7 @@ onMounted(fetchDashboardData);
                 <td data-label="Odometer">{{ log.odometerReading.toLocaleString('en-IN') }} km</td>
                 <td data-label="Litres">{{ log.litres }} L</td>
                 <td data-label="Total Bill" class="text-green font-semibold">₹{{ log.amountSpent.toLocaleString('en-IN')
-                }}</td>
+                  }}</td>
                 <td data-label="Variant / Run Runrate">
                   <div class="flex-badges">
                     <span :class="['variant-tag', log.fuelType.toLowerCase()]">{{ log.fuelType }}</span>
