@@ -22,15 +22,19 @@ const pinInput = ref('');
 const pinError = ref('');
 const pinInputRef = ref(null);
 
-const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
+//const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
+const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
 
 // App State
 const logs = ref([]);
+// App State
 const stats = ref({
   totalSpend: 0,
   totalLitres: 0,
   averageMileage: 0,
-  predictedMonthlyExpense: 0
+  predictedMonthlyExpense: 0,
+  cityMileage: 0,    // Added to map backend properties
+  highwayMileage: 0  // Added to map backend properties
 });
 const loading = ref(false);
 
@@ -49,7 +53,9 @@ const form = ref({
   odometerReading: null,
   amountSpent: null,
   ratePerLitre: null,
-  fuelType: 'NORMAL'
+  fuelType: 'NORMAL',
+  tripType: 'MIXED',
+  cityPercentage: 50
 });
 
 const autoCalculatedRate = computed(() => {
@@ -93,27 +99,64 @@ const updateCharts = () => {
   // Chronological sort for the line trend (oldest to newest)
   const sortedLogs = [...logs.value].reverse();
 
-  const points = [];
   const labels = [];
+  const overallPoints = [];
+  const cityPoints = [];
+  const highwayPoints = [];
 
   for (let i = 1; i < sortedLogs.length; i++) {
     const dist = sortedLogs[i].odometerReading - sortedLogs[i - 1].odometerReading;
-    const eff = dist / sortedLogs[i].litres;
-    points.push(parseFloat(eff.toFixed(2)));
-    labels.push(sortedLogs[i].logDate);
+    const eff = parseFloat((dist / sortedLogs[i].litres).toFixed(2));
+    const currentLog = sortedLogs[i];
+
+    labels.push(currentLog.logDate);
+    overallPoints.push(eff);
+
+    // FIX: Push matching indexes or null to maintain the array layout balance
+    if (currentLog.tripType === 'CITY') {
+      cityPoints.push(eff);
+      highwayPoints.push(null);
+    } else if (currentLog.tripType === 'HIGHWAY') {
+      cityPoints.push(null);
+      highwayPoints.push(eff);
+    } else {
+      // MIXED environments leave both scatter variants empty
+      cityPoints.push(null);
+      highwayPoints.push(null);
+    }
   }
 
   lineChartData.value = {
     labels: labels.length ? labels : ['Need multiple entries'],
-    datasets: [{
-      label: 'Mileage Trend (km/L)',
-      data: points,
-      borderColor: '#38bdf8',
-      backgroundColor: 'rgba(56, 189, 248, 0.1)',
-      tension: 0.3,
-      pointRadius: 5,
-      hitRadius: 10
-    }]
+    datasets: [
+      {
+        label: 'Overall Trend (km/L)',
+        data: overallPoints,
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56, 189, 248, 0.05)',
+        tension: 0.3,
+        pointRadius: 4,
+        hitRadius: 10
+      },
+      {
+        label: 'Pure City (km/L)',
+        data: cityPoints, // Length matches labels perfectly now
+        borderColor: '#f43f5e',
+        backgroundColor: '#f43f5e',
+        showLine: false,
+        pointRadius: 6,
+        pointStyle: 'circle'
+      },
+      {
+        label: 'Pure Highway (km/L)',
+        data: highwayPoints, // Length matches labels perfectly now
+        borderColor: '#10b981',
+        backgroundColor: '#10b981',
+        showLine: false,
+        pointRadius: 6,
+        pointStyle: 'triangle'
+      }
+    ]
   };
 
   // Spending Split by Variant
@@ -128,7 +171,7 @@ const updateCharts = () => {
     labels: ['Normal Petrol', 'Premium XP100'],
     datasets: [{
       data: [normalSpend, xpSpend],
-      backgroundColor: ['#06b6d4', '#f59e0b'], // High contrast Cyan and Gold
+      backgroundColor: ['#06b6d4', '#f59e0b'],
       borderWidth: 0
     }]
   };
@@ -152,11 +195,9 @@ const fetchDashboardData = async () => {
 };
 
 const submitLog = async () => {
-  // Check if a valid PIN is already cached locally
   let cachedPin = localStorage.getItem('pitstop_admin_pin');
 
   if (!cachedPin) {
-    // Open custom modal and shift layout focus
     pinInput.value = '';
     pinError.value = '';
     showPinModal.value = true;
@@ -167,7 +208,6 @@ const submitLog = async () => {
     return;
   }
 
-  // If PIN exists in storage, bypass modal and execute immediate commit
   await executeSecureSave(cachedPin);
 };
 
@@ -177,7 +217,6 @@ const confirmPinSubmit = async () => {
     return;
   }
 
-  // Clear errors and store the structured data key string locally
   const enteredPin = pinInput.value;
   pinError.value = '';
 
@@ -200,11 +239,9 @@ const executeSecureSave = async (authPin) => {
       headers: { 'X-Admin-Pin': authPin }
     });
 
-    // Cache the pin in storage only after a verified 200 OK backend response
     localStorage.setItem('pitstop_admin_pin', authPin);
     showPinModal.value = false;
 
-    // Reset log submission form values
     form.value = {
       logDate: new Date().toISOString().split('T')[0],
       city: '',
@@ -213,13 +250,14 @@ const executeSecureSave = async (authPin) => {
       odometerReading: null,
       amountSpent: null,
       ratePerLitre: null,
-      fuelType: 'NORMAL'
+      fuelType: 'NORMAL',
+      tripType: 'MIXED',
+      cityPercentage: 50
     };
 
     await fetchDashboardData();
   } catch (error) {
     if (error.response && error.response.status === 401) {
-      // Evict local credentials and present inline error within the template modal
       localStorage.removeItem('pitstop_admin_pin');
       pinInput.value = '';
       pinError.value = "Invalid PIN. Access denied.";
@@ -234,7 +272,6 @@ const executeSecureSave = async (authPin) => {
   }
 };
 
-// Add a state tracker for visibility control
 const showDropdown = ref(false);
 
 const selectCity = (city) => {
@@ -242,12 +279,10 @@ const selectCity = (city) => {
   showDropdown.value = false;
 };
 
-// Toggle control when tapping the side arrow directly
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value;
 };
 
-// Delayed blur closes menu but allows click event register first
 const hideDropdownDelayed = () => {
   setTimeout(() => {
     showDropdown.value = false;
@@ -277,12 +312,42 @@ onMounted(fetchDashboardData);
           <span class="value text-cyan">{{ stats.averageMileage ? stats.averageMileage.toFixed(2) : '0.00' }}</span>
           <span class="unit">km/L</span>
         </div>
+        <!-- New Environment Breakdown Rows -->
+        <div class="kpi-sub-breakdown">
+          <div class="sub-item">
+            <span class="sub-label">🏙️ City:</span>
+            <span class="sub-val text-rose">{{ stats.cityMileage ? stats.cityMileage.toFixed(1) : '0.0' }}
+              <small>km/L</small></span>
+          </div>
+          <div class="sub-item">
+            <span class="sub-label">🛣️ Hwy:</span>
+            <span class="sub-val text-emerald">{{ stats.highwayMileage ? stats.highwayMileage.toFixed(1) : '0.0' }}
+              <small>km/L</small></span>
+          </div>
+        </div>
       </div>
 
       <div class="kpi-card border-green">
         <span class="kpi-title">Gross Investment</span>
         <div class="kpi-value-row">
           <span class="value text-green">₹{{ stats.totalSpend ? stats.totalSpend.toLocaleString('en-IN') : '0' }}</span>
+        </div>
+        <!-- Dynamic Fuel Variant Cost Sub-Breakdown -->
+        <div class="kpi-sub-breakdown">
+          <div class="sub-item">
+            <span class="sub-label">⚓ Normal:</span>
+            <span class="sub-val text-cyan">
+              ₹{{logs.reduce((acc, log) => log.fuelType === 'NORMAL' ? acc + log.amountSpent : acc,
+                0).toLocaleString('en-IN') }}
+            </span>
+          </div>
+          <div class="sub-item">
+            <span class="sub-label">🔥 XP100:</span>
+            <span class="sub-val text-amber">
+              ₹{{logs.reduce((acc, log) => log.fuelType === 'XP100' ? acc + log.amountSpent : acc,
+                0).toLocaleString('en-IN') }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -399,6 +464,31 @@ onMounted(fetchDashboardData);
             </div>
           </div>
 
+          <div class="input-block">
+            <label>Driving Environment</label>
+            <div class="radio-toggle">
+              <label class="radio-label">
+                <input type="radio" value="CITY" v-model="form.tripType" @change="form.cityPercentage = 100"> 🏙️ City
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="HIGHWAY" v-model="form.tripType" @change="form.cityPercentage = 0"> 🛣️
+                Highway
+              </label>
+              <label class="radio-label">
+                <input type="radio" value="MIXED" v-model="form.tripType" @change="form.cityPercentage = 50"> 🔄 Mixed
+              </label>
+            </div>
+          </div>
+
+          <div class="input-block" v-if="form.tripType === 'MIXED'">
+            <div class="flex-justify-between">
+              <label>Usage Split</label>
+              <span class="text-cyan font-semibold" style="font-size: 12px;">{{ form.cityPercentage }}% City / {{ 100 -
+                form.cityPercentage }}% Highway</span>
+            </div>
+            <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage" class="custom-slider" />
+          </div>
+
           <button type="submit" class="submit-action-btn">Save Details</button>
         </form>
       </aside>
@@ -433,7 +523,12 @@ onMounted(fetchDashboardData);
                   }}</td>
                 <td data-label="Variant / Run Runrate">
                   <div class="flex-badges">
-                    <span :class="['variant-tag', log.fuelType.toLowerCase()]">{{ log.fuelType }}</span>
+                    <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                      <span :class="['variant-tag', log.fuelType.toLowerCase()]">{{ log.fuelType }}</span>
+                      <span :class="['environment-badge', (log.tripType || 'MIXED').toLowerCase()]">
+                        {{ log.tripType === 'MIXED' ? `${log.cityPercentage || 50}% City` : log.tripType }}
+                      </span>
+                    </div>
 
                     <!-- Sequential Metrics Group -->
                     <template v-if="index < logs.length - 1">
@@ -835,6 +930,66 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .submit-action-btn:hover {
   background: #0369a1;
+}
+
+/* Custom premium track slider adjustments */
+.flex-justify-between {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  align-items: center;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.custom-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  outline: none;
+  margin: 8px 0;
+}
+
+.custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #38bdf8;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+.environment-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.environment-badge.city {
+  background: rgba(244, 63, 94, 0.15);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.environment-badge.highway {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.environment-badge.mixed {
+  background: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
 }
 
 /* ---------------------------------------------------
@@ -1247,5 +1402,56 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .btn-confirm:hover {
   background: #7dd3fc;
+}
+
+.kpi-sub-breakdown {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(51, 65, 85, 0.5);
+  gap: 8px;
+}
+
+.sub-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.sub-label {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.sub-val {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.sub-val small {
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+/* Color overrides matching line highlights */
+.text-rose {
+  color: #f43f5e;
+}
+
+.text-emerald {
+  color: #10b981;
+}
+
+.text-cyan {
+  color: #06b6d4 !important;
+}
+
+.text-amber {
+  color: #f59e0b !important;
 }
 </style>
