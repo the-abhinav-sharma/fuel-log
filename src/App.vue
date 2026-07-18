@@ -22,8 +22,8 @@ const pinInput = ref('');
 const pinError = ref('');
 const pinInputRef = ref(null);
 
-//const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
-const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
+const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
+//const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
 
 // App State
 const logs = ref([]);
