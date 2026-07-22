@@ -22,8 +22,8 @@ const pinInput = ref('');
 const pinError = ref('');
 const pinInputRef = ref(null);
 
-const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
-//const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
+//const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
+const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
 
 // App State
 const logs = ref([]);
@@ -338,14 +338,14 @@ onMounted(fetchDashboardData);
             <span class="sub-label">⚓ Normal:</span>
             <span class="sub-val text-cyan">
               ₹{{logs.reduce((acc, log) => log.fuelType === 'NORMAL' ? acc + log.amountSpent : acc,
-                0).toLocaleString('en-IN') }}
+                0).toLocaleString('en-IN')}}
             </span>
           </div>
           <div class="sub-item">
             <span class="sub-label">🔥 XP100:</span>
             <span class="sub-val text-amber">
               ₹{{logs.reduce((acc, log) => log.fuelType === 'XP100' ? acc + log.amountSpent : acc,
-                0).toLocaleString('en-IN') }}
+                0).toLocaleString('en-IN')}}
             </span>
           </div>
         </div>
@@ -480,14 +480,31 @@ onMounted(fetchDashboardData);
             </div>
           </div>
 
-          <div class="input-block" v-if="form.tripType === 'MIXED'">
-            <div class="flex-justify-between">
-              <label>Usage Split</label>
-              <span class="text-cyan font-semibold" style="font-size: 12px;">{{ form.cityPercentage }}% City / {{ 100 -
-                form.cityPercentage }}% Highway</span>
+          <!-- Expanded Mixed Settings Block -->
+          <template v-if="form.tripType === 'MIXED'">
+            <div class="input-block">
+              <div class="flex-justify-between">
+                <label>Usage Split</label>
+                <span class="text-cyan font-semibold" style="font-size: 12px;">
+                  {{ form.cityPercentage }}% City / {{ 100 - form.cityPercentage }}% Highway
+                </span>
+              </div>
+              <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage"
+                class="custom-slider" />
             </div>
-            <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage" class="custom-slider" />
-          </div>
+
+            <div class="input-block">
+              <div class="flex-justify-between">
+                <label>Dash Highway Mileage <span
+                    style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Optional)</span></label>
+                <span class="text-cyan font-semibold" style="font-size: 12px;" v-if="form.knownHighwayMileage">
+                  {{ form.knownHighwayMileage }} km/L
+                </span>
+              </div>
+              <input type="number" step="0.1" min="1" max="50" v-model.number="form.knownHighwayMileage"
+                placeholder="e.g. 20.0" class="form-input" />
+            </div>
+          </template>
 
           <button type="submit" class="submit-action-btn">Save Details</button>
         </form>
@@ -520,7 +537,7 @@ onMounted(fetchDashboardData);
                 <td data-label="Odometer">{{ log.odometerReading.toLocaleString('en-IN') }} km</td>
                 <td data-label="Litres">{{ log.litres }} L</td>
                 <td data-label="Total Bill" class="text-green font-semibold">₹{{ log.amountSpent.toLocaleString('en-IN')
-                  }}</td>
+                }}</td>
                 <td data-label="Variant / Run Runrate">
                   <div class="flex-badges">
                     <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
