@@ -28,9 +28,15 @@ const showQueueDetails = ref(false);
 const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app';
 //const API_URL = 'http://192.168.1.5:2990';
 
+// Global & Action Loading States
+const globalLoading = ref(false);
+const loadingMessage = ref('');
+const driveSubmitting = ref(false);
+const saveSubmitting = ref(false);
+const deletingTripId = ref(null);
+
 // App State
 const logs = ref([]);
-// App State
 const stats = ref({
   totalSpend: 0,
   totalLitres: 0,
@@ -68,6 +74,7 @@ const driveForm = ref({
 });
 
 const deletePendingTrip = async (id) => {
+  deletingTripId.value = id;
   try {
     await axios.delete(`${API_URL}/api/pending-trips/${id}`);
     await fetchPendingTrips();
@@ -76,6 +83,8 @@ const deletePendingTrip = async (id) => {
     }
   } catch (error) {
     console.error('Failed to delete pending trip:', error);
+  } finally {
+    deletingTripId.value = null;
   }
 };
 
@@ -252,6 +261,10 @@ const cancelPinSubmit = () => {
 };
 
 const executeSecureSave = async (authPin) => {
+  saveSubmitting.value = true;
+  globalLoading.value = true;
+  loadingMessage.value = 'Saving fuel telemetry & processing queue...';
+
   try {
     if (!form.value.ratePerLitre && autoCalculatedRate.value) {
       form.value.ratePerLitre = parseFloat(autoCalculatedRate.value);
@@ -291,6 +304,10 @@ const executeSecureSave = async (authPin) => {
     } else {
       alert("Failed to save entry due to a transport error.");
     }
+  } finally {
+    saveSubmitting.value = false;
+    globalLoading.value = false;
+    loadingMessage.value = '';
   }
 };
 
@@ -325,6 +342,7 @@ const fetchPendingTrips = async () => {
 const submitDriveLog = async () => {
   if (!driveForm.value.distanceKm || !driveForm.value.knownHighwayMileage) return;
 
+  driveSubmitting.value = true;
   try {
     await axios.post(`${API_URL}/api/pending-trips`, driveForm.value, {
       headers: { 'Content-Type': 'application/json' }
@@ -338,6 +356,8 @@ const submitDriveLog = async () => {
     await fetchPendingTrips();
   } catch (error) {
     console.error('Failed to log drive:', error);
+  } finally {
+    driveSubmitting.value = false;
   }
 };
 
@@ -346,6 +366,14 @@ onMounted(fetchDashboardData);
 
 <template>
   <div class="dashboard-wrapper">
+    <!-- Global Full Screen Overlay Spinner -->
+    <div v-if="globalLoading" class="loading-overlay">
+      <div class="spinner-card">
+        <div class="pulse-spinner"></div>
+        <p>{{ loadingMessage || 'Processing Telemetry...' }}</p>
+      </div>
+    </div>
+
     <header class="app-header">
       <div class="brand">
         <span class="icon">⚡</span>
@@ -574,7 +602,9 @@ onMounted(fetchDashboardData);
             </div>
           </template>
 
-          <button type="submit" class="submit-action-btn">Save Details</button>
+          <button type="submit" class="submit-action-btn" :disabled="saveSubmitting">
+            {{ saveSubmitting ? 'Saving Telemetry...' : 'Save Details' }}
+          </button>
         </form>
       </aside>
 
@@ -662,7 +692,7 @@ onMounted(fetchDashboardData);
             style="text-align: left; font-size: 16px; letter-spacing: normal;" />
         </div>
 
-        <!-- NEW: Optional Notes Field -->
+        <!-- Optional Notes Field -->
         <div class="input-block">
           <label>Notes <span style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Optional)</span></label>
           <input v-model="driveForm.notes" type="text" placeholder="e.g. Expressway run, moderate traffic"
@@ -671,13 +701,15 @@ onMounted(fetchDashboardData);
       </div>
 
       <div class="pin-modal-actions">
-        <button @click="showDriveModal = false" class="btn-cancel">Cancel</button>
-        <button @click="submitDriveLog" class="btn-confirm">Queue Drive</button>
+        <button @click="showDriveModal = false" class="btn-cancel" :disabled="driveSubmitting">Cancel</button>
+        <button @click="submitDriveLog" class="btn-confirm" :disabled="driveSubmitting">
+          {{ driveSubmitting ? 'Queueing...' : 'Queue Drive' }}
+        </button>
       </div>
     </div>
   </div>
 
-  <!-- 2. NEW: Queued Drives Inspector Modal -->
+  <!-- 2. Queued Drives Inspector Modal -->
   <div v-if="showQueueDetails" class="pin-modal-overlay">
     <div class="pin-modal-card" style="max-width: 480px; width: 90%;">
       <div class="pin-modal-header">
@@ -696,9 +728,9 @@ onMounted(fetchDashboardData);
               🗓️ {{ trip.logDate || 'Today' }} <span v-if="trip.notes">• 📝 {{ trip.notes }}</span>
             </div>
           </div>
-          <button @click="deletePendingTrip(trip.id)"
+          <button @click="deletePendingTrip(trip.id)" :disabled="deletingTripId === trip.id"
             style="background: #ef4444; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-            🗑️
+            {{ deletingTripId === trip.id ? 'Deleting...' : '🗑️' }}
           </button>
         </div>
       </div>
@@ -720,13 +752,15 @@ onMounted(fetchDashboardData);
       <div class="pin-modal-body">
         <input v-model="pinInput" type="password" inputmode="numeric" pattern="\d*" maxlength="4" placeholder="••••"
           class="pin-input-field" :class="{ 'input-shake-error': pinError }" @keyup.enter="confirmPinSubmit"
-          ref="pinInputRef" />
+          ref="pinInputRef" :disabled="saveSubmitting" />
         <div v-if="pinError" class="pin-error-text">❌ {{ pinError }}</div>
       </div>
 
       <div class="pin-modal-actions">
-        <button @click="cancelPinSubmit" class="btn-cancel">Cancel</button>
-        <button @click="confirmPinSubmit" class="btn-confirm">Verify & Save</button>
+        <button @click="cancelPinSubmit" class="btn-cancel" :disabled="saveSubmitting">Cancel</button>
+        <button @click="confirmPinSubmit" class="btn-confirm" :disabled="saveSubmitting">
+          {{ saveSubmitting ? 'Verifying...' : 'Verify & Save' }}
+        </button>
       </div>
     </div>
   </div>
@@ -1608,5 +1642,50 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .text-amber {
   color: #f59e0b !important;
+}
+
+/* Glassmorphism Global Overlay Styles */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner-card {
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px 36px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  color: #f8fafc;
+  font-weight: 500;
+}
+
+/* Cyan Pulsing Ring Spinner */
+.pulse-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(56, 189, 248, 0.2);
+  border-radius: 50%;
+  border-top-color: #38bdf8;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
