@@ -21,9 +21,11 @@ const showPinModal = ref(false);
 const pinInput = ref('');
 const pinError = ref('');
 const pinInputRef = ref(null);
+const showDriveModal = ref(false);
+const pendingTrips = ref([]);
 
-const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app/api/fuel-logs';
-//const API_URL = 'http://192.168.1.5:2990/api/fuel-logs';
+const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app';
+//const API_URL = 'http://192.168.1.5:2990';
 
 // App State
 const logs = ref([]);
@@ -56,6 +58,11 @@ const form = ref({
   fuelType: 'NORMAL',
   tripType: 'MIXED',
   cityPercentage: 50
+});
+
+const driveForm = ref({
+  distanceKm: null,
+  knownHighwayMileage: null
 });
 
 const autoCalculatedRate = computed(() => {
@@ -181,12 +188,13 @@ const fetchDashboardData = async () => {
   loading.value = true;
   try {
     const [logsRes, statsRes] = await Promise.all([
-      axios.get(API_URL),
-      axios.get(`${API_URL}/stats`)
+      axios.get(`${API_URL}/api/fuel-logs`),
+      axios.get(`${API_URL}/api/fuel-logs/stats`)
     ]);
     logs.value = logsRes.data;
     stats.value = statsRes.data;
     updateCharts();
+    await fetchPendingTrips();
   } catch (error) {
     console.error("Backend unreachable:", error);
   } finally {
@@ -235,7 +243,7 @@ const executeSecureSave = async (authPin) => {
       form.value.ratePerLitre = parseFloat(autoCalculatedRate.value);
     }
 
-    await axios.post(API_URL, form.value, {
+    await axios.post(API_URL+'/api/fuel-logs', form.value, {
       headers: { 'X-Admin-Pin': authPin }
     });
 
@@ -289,6 +297,38 @@ const hideDropdownDelayed = () => {
   }, 200);
 };
 
+// 1. Fetch Pending Trips from Backend
+const fetchPendingTrips = async () => {
+  try {
+    const response = await axios.get(`${API_URL}/api/pending-trips`);
+    pendingTrips.value = response.data;
+  } catch (error) {
+    console.error('Error fetching pending trips:', error);
+  }
+};
+
+// 2. Submit Quick Drive Log
+const submitDriveLog = async () => {
+  if (!driveForm.value.distanceKm || !driveForm.value.knownHighwayMileage) return;
+
+  try {
+    await axios.post(`${API_URL}/api/pending-trips`, driveForm.value, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Reset modal form
+    driveForm.value = { distanceKm: null, knownHighwayMileage: null };
+    showDriveModal.value = false;
+
+    // Refresh pending trips count so the UI badge updates
+    await fetchPendingTrips();
+  } catch (error) {
+    console.error('Failed to log drive:', error);
+  }
+};
+
 onMounted(fetchDashboardData);
 </script>
 
@@ -312,7 +352,7 @@ onMounted(fetchDashboardData);
           <span class="value text-cyan">{{ stats.averageMileage ? stats.averageMileage.toFixed(2) : '0.00' }}</span>
           <span class="unit">km/L</span>
         </div>
-        <!-- New Environment Breakdown Rows -->
+        <!-- Environment Breakdown Rows -->
         <div class="kpi-sub-breakdown">
           <div class="sub-item">
             <span class="sub-label">🏙️ City:</span>
@@ -388,7 +428,18 @@ onMounted(fetchDashboardData);
     <div class="main-layout">
       <!-- Input Side Panel -->
       <aside class="panel-form">
-        <h2>Refuel Telemetry</h2>
+        <div class="flex-justify-between align-center mb-2">
+          <h2>Refuel Telemetry</h2>
+          <button type="button" @click="showDriveModal = true" class="btn-secondary-action">
+            🛣️ + Drive Log
+          </button>
+        </div>
+
+        <!-- Pending Trips Queue Indicator Badge -->
+        <div v-if="pendingTrips && pendingTrips.length > 0" class="pending-queue-badge">
+          <span>📍 {{ pendingTrips.length }} drive(s) queued for next refuel</span>
+        </div>
+
         <form @submit.prevent="submitLog" class="styled-form">
           <div class="input-row">
             <div class="input-block">
@@ -485,24 +536,19 @@ onMounted(fetchDashboardData);
             <div class="input-block">
               <div class="flex-justify-between">
                 <label>Usage Split</label>
-                <span class="text-cyan font-semibold" style="font-size: 12px;">
+
+                <!-- Show Auto-Calculated badge if pending trips exist -->
+                <span v-if="pendingTrips && pendingTrips.length > 0" class="text-cyan font-semibold"
+                  style="font-size: 12px;">
+                  ✨ Auto-calculating from {{ pendingTrips.length }} queued drive(s)
+                </span>
+                <span v-else class="text-cyan font-semibold" style="font-size: 12px;">
                   {{ form.cityPercentage }}% City / {{ 100 - form.cityPercentage }}% Highway
                 </span>
               </div>
-              <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage"
-                class="custom-slider" />
-            </div>
 
-            <div class="input-block">
-              <div class="flex-justify-between">
-                <label>Dash Highway Mileage <span
-                    style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Optional)</span></label>
-                <span class="text-cyan font-semibold" style="font-size: 12px;" v-if="form.knownHighwayMileage">
-                  {{ form.knownHighwayMileage }} km/L
-                </span>
-              </div>
-              <input type="number" step="0.1" min="1" max="50" v-model.number="form.knownHighwayMileage"
-                placeholder="e.g. 20.0" class="form-input" />
+              <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage" class="custom-slider"
+                :disabled="pendingTrips && pendingTrips.length > 0" />
             </div>
           </template>
 
@@ -568,6 +614,37 @@ onMounted(fetchDashboardData);
           </table>
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- Custom Theme-Matching Drive Logger Modal -->
+  <div v-if="showDriveModal" class="pin-modal-overlay">
+    <div class="pin-modal-card">
+      <div class="pin-modal-header">
+        <h3>🛣️ Quick Drive Logger</h3>
+        <p>Record a trip readout right after driving</p>
+      </div>
+
+      <div class="pin-modal-body" style="display: flex; flex-direction: column; gap: 12px; text-align: left;">
+        <div class="input-block">
+          <label>Distance Driven (km)</label>
+          <input v-model.number="driveForm.distanceKm" type="number" step="0.1" inputmode="decimal"
+            placeholder="e.g. 214.5" class="pin-input-field"
+            style="text-align: left; font-size: 16px; letter-spacing: normal;" />
+        </div>
+
+        <div class="input-block">
+          <label>Dash Highway Mileage (km/L)</label>
+          <input v-model.number="driveForm.knownHighwayMileage" type="number" step="0.1" inputmode="decimal"
+            placeholder="e.g. 20.0" class="pin-input-field"
+            style="text-align: left; font-size: 16px; letter-spacing: normal;" />
+        </div>
+      </div>
+
+      <div class="pin-modal-actions">
+        <button @click="showDriveModal = false" class="btn-cancel">Cancel</button>
+        <button @click="submitDriveLog" class="btn-confirm">Queue Drive</button>
+      </div>
     </div>
   </div>
 
