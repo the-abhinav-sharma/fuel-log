@@ -69,7 +69,7 @@ const driveForm = ref({
 
 const deletePendingTrip = async (id) => {
   try {
-    await axios.delete(`${API_URL}/pending-trips/${id}`);
+    await axios.delete(`${API_URL}/api/pending-trips/${id}`);
     await fetchPendingTrips();
     if (pendingTrips.value.length === 0) {
       showQueueDetails.value = false;
@@ -326,7 +326,7 @@ const submitDriveLog = async () => {
   if (!driveForm.value.distanceKm || !driveForm.value.knownHighwayMileage) return;
 
   try {
-    await axios.post(`${API_URL}/pending-trips`, driveForm.value, {
+    await axios.post(`${API_URL}/api/pending-trips`, driveForm.value, {
       headers: { 'Content-Type': 'application/json' }
     });
 
