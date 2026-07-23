@@ -23,6 +23,7 @@ const pinError = ref('');
 const pinInputRef = ref(null);
 const showDriveModal = ref(false);
 const pendingTrips = ref([]);
+const showQueueDetails = ref(false);
 
 const API_URL = 'https://skinny-kara-lynn-abhinavsharma-a4ea3b65.koyeb.app';
 //const API_URL = 'http://192.168.1.5:2990';
@@ -62,8 +63,21 @@ const form = ref({
 
 const driveForm = ref({
   distanceKm: null,
-  knownHighwayMileage: null
+  knownHighwayMileage: null,
+  notes: '' // Reset default notes
 });
+
+const deletePendingTrip = async (id) => {
+  try {
+    await axios.delete(`${API_URL}/pending-trips/${id}`);
+    await fetchPendingTrips();
+    if (pendingTrips.value.length === 0) {
+      showQueueDetails.value = false;
+    }
+  } catch (error) {
+    console.error('Failed to delete pending trip:', error);
+  }
+};
 
 const autoCalculatedRate = computed(() => {
   if (form.value.amountSpent && form.value.litres) {
@@ -243,7 +257,7 @@ const executeSecureSave = async (authPin) => {
       form.value.ratePerLitre = parseFloat(autoCalculatedRate.value);
     }
 
-    await axios.post(API_URL+'/api/fuel-logs', form.value, {
+    await axios.post(API_URL + '/api/fuel-logs', form.value, {
       headers: { 'X-Admin-Pin': authPin }
     });
 
@@ -312,17 +326,15 @@ const submitDriveLog = async () => {
   if (!driveForm.value.distanceKm || !driveForm.value.knownHighwayMileage) return;
 
   try {
-    await axios.post(`${API_URL}/api/pending-trips`, driveForm.value, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+    await axios.post(`${API_URL}/pending-trips`, driveForm.value, {
+      headers: { 'Content-Type': 'application/json' }
     });
 
-    // Reset modal form
-    driveForm.value = { distanceKm: null, knownHighwayMileage: null };
+    // Reset form
+    driveForm.value = { distanceKm: null, knownHighwayMileage: null, notes: '' };
     showDriveModal.value = false;
 
-    // Refresh pending trips count so the UI badge updates
+    // Refresh pending queue
     await fetchPendingTrips();
   } catch (error) {
     console.error('Failed to log drive:', error);
@@ -435,9 +447,10 @@ onMounted(fetchDashboardData);
           </button>
         </div>
 
-        <!-- Pending Trips Queue Indicator Badge -->
-        <div v-if="pendingTrips && pendingTrips.length > 0" class="pending-queue-badge">
-          <span>📍 {{ pendingTrips.length }} drive(s) queued for next refuel</span>
+        <!-- Interactive Pending Trips Queue Indicator Badge -->
+        <div v-if="pendingTrips && pendingTrips.length > 0" @click="showQueueDetails = true"
+          class="pending-queue-badge clickable-badge" title="Click to view queued drives">
+          <span>📍 {{ pendingTrips.length }} drive(s) queued for next refuel 🔍</span>
         </div>
 
         <form @submit.prevent="submitLog" class="styled-form">
@@ -536,19 +549,28 @@ onMounted(fetchDashboardData);
             <div class="input-block">
               <div class="flex-justify-between">
                 <label>Usage Split</label>
-
-                <!-- Show Auto-Calculated badge if pending trips exist -->
                 <span v-if="pendingTrips && pendingTrips.length > 0" class="text-cyan font-semibold"
                   style="font-size: 12px;">
-                  ✨ Auto-calculating from {{ pendingTrips.length }} queued drive(s)
+                  ✨ Auto-calculating from {{ pendingTrips.length }} drive(s)
                 </span>
                 <span v-else class="text-cyan font-semibold" style="font-size: 12px;">
                   {{ form.cityPercentage }}% City / {{ 100 - form.cityPercentage }}% Highway
                 </span>
               </div>
-
               <input type="range" min="10" max="90" step="5" v-model.number="form.cityPercentage" class="custom-slider"
                 :disabled="pendingTrips && pendingTrips.length > 0" />
+            </div>
+
+            <div class="input-block">
+              <div class="flex-justify-between">
+                <label>Dash Highway Mileage <span
+                    style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Optional)</span></label>
+                <span class="text-cyan font-semibold" style="font-size: 12px;" v-if="form.knownHighwayMileage">
+                  {{ form.knownHighwayMileage }} km/L
+                </span>
+              </div>
+              <input type="number" step="0.1" min="1" max="50" v-model.number="form.knownHighwayMileage"
+                placeholder="e.g. 20.0" class="form-input" />
             </div>
           </template>
 
@@ -583,7 +605,7 @@ onMounted(fetchDashboardData);
                 <td data-label="Odometer">{{ log.odometerReading.toLocaleString('en-IN') }} km</td>
                 <td data-label="Litres">{{ log.litres }} L</td>
                 <td data-label="Total Bill" class="text-green font-semibold">₹{{ log.amountSpent.toLocaleString('en-IN')
-                }}</td>
+                  }}</td>
                 <td data-label="Variant / Run Runrate">
                   <div class="flex-badges">
                     <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
@@ -617,7 +639,7 @@ onMounted(fetchDashboardData);
     </div>
   </div>
 
-  <!-- Custom Theme-Matching Drive Logger Modal -->
+  <!-- 1. Quick Drive Logger Modal (With Notes Input) -->
   <div v-if="showDriveModal" class="pin-modal-overlay">
     <div class="pin-modal-card">
       <div class="pin-modal-header">
@@ -639,6 +661,13 @@ onMounted(fetchDashboardData);
             placeholder="e.g. 20.0" class="pin-input-field"
             style="text-align: left; font-size: 16px; letter-spacing: normal;" />
         </div>
+
+        <!-- NEW: Optional Notes Field -->
+        <div class="input-block">
+          <label>Notes <span style="font-size: 11px; opacity: 0.6; font-weight: normal;">(Optional)</span></label>
+          <input v-model="driveForm.notes" type="text" placeholder="e.g. Expressway run, moderate traffic"
+            class="pin-input-field" style="text-align: left; font-size: 14px; letter-spacing: normal;" />
+        </div>
       </div>
 
       <div class="pin-modal-actions">
@@ -648,7 +677,39 @@ onMounted(fetchDashboardData);
     </div>
   </div>
 
-  <!-- Custom Theme-Matching PIN Modal -->
+  <!-- 2. NEW: Queued Drives Inspector Modal -->
+  <div v-if="showQueueDetails" class="pin-modal-overlay">
+    <div class="pin-modal-card" style="max-width: 480px; width: 90%;">
+      <div class="pin-modal-header">
+        <h3>📍 Queued Drives</h3>
+        <p>Pending drives that will be calculated into your next refuel</p>
+      </div>
+
+      <div class="pin-modal-body" style="text-align: left; max-height: 300px; overflow-y: auto;">
+        <div v-for="trip in pendingTrips" :key="trip.id"
+          style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600; color: #38bdf8;">
+              🛣️ {{ trip.distanceKm }} km @ {{ trip.knownHighwayMileage }} km/L
+            </div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
+              🗓️ {{ trip.logDate || 'Today' }} <span v-if="trip.notes">• 📝 {{ trip.notes }}</span>
+            </div>
+          </div>
+          <button @click="deletePendingTrip(trip.id)"
+            style="background: #ef4444; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+            🗑️
+          </button>
+        </div>
+      </div>
+
+      <div class="pin-modal-actions">
+        <button @click="showQueueDetails = false" class="btn-confirm" style="width: 100%;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Admin Authorization PIN Modal -->
   <div v-if="showPinModal" class="pin-modal-overlay">
     <div class="pin-modal-card">
       <div class="pin-modal-header">
